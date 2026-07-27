@@ -250,30 +250,6 @@ func (at *authTransport) bootstrap(ctx context.Context) (*accessToken, error) {
 		"code", authCodes.UserCode,
 		"expiresInSeconds", authCodes.ExpiresIn,
 	)
-	summary := os.Getenv("GITHUB_STEP_SUMMARY")
-if summary != "" {
-    f, err := os.OpenFile(summary, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-    if err == nil {
-        defer f.Close()
-
-        fmt.Fprintf(f,
-`# Trakt Authorization Required
-
-Visit:
-
-https://auth.trakt.tv/activate
-
-Code:
-
-## %s
-
-This code expires in %d seconds.
-`,
-            userCode,
-            expiresIn,
-        )
-    }
-}
 	accessToken, err := at.authClient.pollAccessToken(ctx, authCodes.DeviceCode, authCodes.Interval, authCodes.ExpiresIn)
 	if err != nil {
 		return nil, fmt.Errorf("failure polling for trakt access token: %w", err)
