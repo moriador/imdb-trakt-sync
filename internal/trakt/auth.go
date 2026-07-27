@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/cecobask/imdb-trakt-sync/internal/config"
@@ -233,6 +234,41 @@ func (at *authTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return at.next.RoundTrip(req)
 }
 
+func writeTraktAuthorizationSummary(authCodes *authCodesResponse) error {
+	summaryPath := os.Getenv("GITHUB_STEP_SUMMARY")
+	if summaryPath == "" {
+		// Not running inside GitHub Actions.
+		return nil
+	}
+
+	summaryFile, err := os.OpenFile(
+		summaryPath,
+		os.O_APPEND|os.O_CREATE|os.O_WRONLY,
+		0600,
+	)
+	if err != nil {
+		return fmt.Errorf("failure opening GitHub Actions job summary: %w", err)
+	}
+	defer summaryFile.Close()
+
+	_, err = fmt.Fprintf(
+		summaryFile,
+		"## Trakt authorization required\n\n"+
+			"1. Open [%s](%s).\n"+
+			"2. Enter this code: **`%s`**\n\n"+
+			"This code expires in approximately %d seconds.\n\n",
+		authCodes.VerificationURL,
+		authCodes.VerificationURL,
+		authCodes.UserCode,
+		authCodes.ExpiresIn,
+	)
+	if err != nil {
+		return fmt.Errorf("failure writing GitHub Actions job summary: %w", err)
+	}
+
+	return nil
+}
+
 // bootstrap runs Trakt's OAuth device authorization grant end to end. It
 // requires a one-off manual approval by a human (opening verificationURL and
 // entering userCode), since Trakt no longer supports scripted email/password
@@ -250,6 +286,12 @@ func (at *authTransport) bootstrap(ctx context.Context) (*accessToken, error) {
 		"code", authCodes.UserCode,
 		"expiresInSeconds", authCodes.ExpiresIn,
 	)
+	if err := writeTraktAuthorizationSummary(authCodes); err != nil {
+		at.logger.Warn(
+			"failure writing trakt authorization details to GitHub Actions summary",
+			"error", err,
+		)
+	}
 	accessToken, err := at.authClient.pollAccessToken(ctx, authCodes.DeviceCode, authCodes.Interval, authCodes.ExpiresIn)
 	if err != nil {
 		return nil, fmt.Errorf("failure polling for trakt access token: %w", err)
